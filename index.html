@@ -66,6 +66,13 @@
   #docsbox code{background:#1c1c22;padding:1px 5px;border-radius:5px;font-size:.85em;}
   #docsbox p{line-height:1.85;margin:7px 0;} #docsbox hr{border:0;border-top:1px solid var(--line);margin:12px 0;}
   #docsbox .card{word-break:break-word;}
+  #docsbox details.acc{background:var(--card);border:1px solid var(--line);border-radius:14px;margin:12px 0;overflow:hidden;}
+  #docsbox details.acc>summary{list-style:none;cursor:pointer;padding:15px 18px;font-weight:800;font-size:1.02rem;
+    display:flex;justify-content:space-between;align-items:center;gap:10px;}
+  #docsbox details.acc>summary::-webkit-details-marker{display:none;}
+  #docsbox details.acc>summary::after{content:"▾";color:var(--muted);transition:transform .2s;}
+  #docsbox details.acc[open]>summary::after{transform:rotate(180deg);}
+  #docsbox .acc-body{padding:2px 18px 16px;border-top:1px solid var(--line);word-break:break-word;}
   #login{position:fixed;inset:0;background:#000;display:flex;flex-direction:column;
     align-items:center;justify-content:center;gap:16px;padding:24px;z-index:50;}
   #login img{width:96px;height:96px;border-radius:22px;box-shadow:0 8px 40px rgba(22,199,132,.28);}
@@ -180,8 +187,10 @@ async function loadDocs(){
   try{
     const b64=await fetchText(CFG.feeds.map(u=>u.replace("data.json","docs.json")));
     const d=await decryptData(b64, PW);
-    box.innerHTML='<div class="sub">📄 給教授的進度報告</div><div class="card">'+mdToHtml(d.progress||"（無）")+"</div>"+
-      '<div class="sub" style="margin-top:16px;">📖 完整論文草稿（研究方法與結果）</div><div class="card">'+mdToHtml(d.thesis||"（無）")+"</div>";
+    box.innerHTML=
+      '<div class="muted" style="font-size:.8rem;margin:8px 0 2px;">點下面標題可展開／收合</div>'+
+      '<details class="acc"><summary>📄 給教授的進度報告</summary><div class="acc-body">'+mdToHtml(d.progress||"（無）")+'</div></details>'+
+      '<details class="acc"><summary>📖 完整論文草稿（研究方法與結果）</summary><div class="acc-body">'+mdToHtml(d.thesis||"（無）")+'</div></details>';
     DOCS_STATE="done";
   }catch(e){ box.innerHTML='<div class="note">論文載入失敗，請下拉重新整理或稍後再試。</div>'; DOCS_STATE="idle"; }
 }
