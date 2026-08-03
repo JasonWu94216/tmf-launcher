@@ -145,9 +145,21 @@ async function fetchText(feeds){
   throw (err||new Error("fetch"));
 }
 async function pull(pw){
-  const b64=await fetchText(CFG.feeds);
-  try { return await decryptData(b64, pw); }
-  catch(e){ return {ok:false, error:"auth"}; }
+  // 同時抓所有來源、解密後比對時間戳(ts)，只採用最新的那份
+  // → 避免某個來源(如 githack 的 stale-if-error)卡住舊資料害畫面凍結
+  const good=[]; let authFail=false, neterr=null;
+  for(const u of CFG.feeds){
+    try{
+      const r=await fetch(u+"?t="+Date.now(),{cache:"no-store"});
+      if(!r.ok){ neterr=new Error("http"+r.status); continue; }
+      const b64=await r.text();
+      try{ const d=await decryptData(b64,pw); if(d && d.ok!==false) good.push(d); }
+      catch(e){ authFail=true; }
+    }catch(e){ neterr=e; }
+  }
+  if(good.length){ good.sort((a,b)=> (String(a.ts||"")<String(b.ts||""))?1:-1); return good[0]; }
+  if(authFail) return {ok:false, error:"auth"};
+  throw (neterr || new Error("fetch"));
 }
 
 // ---- markdown 簡易排版（自製，無外部套件）----
