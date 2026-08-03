@@ -148,12 +148,17 @@ function refreshedFrom(s){ const m=/刷新於\s*([\d:]+)/.exec(s||""); return m?
 function snapshot(status,rows){
   if(!rows.length) return {has:false,day:dayFromStatus(status),refreshed:refreshedFrom(status)};
   const last=rows[rows.length-1], first=rows[0];
-  const dc=last.price-first.price, dcp=first.price?dc/first.price*100:0;
+  // A1 狀態列有「目前最新成交價（每分鐘更新）」，優先用它當主要顯示；沒有才退回最後一根 K 收盤
+  let live=null, liveTime="";
+  const mm=/目前最新價格：([\d,]+)（([^）]*)）/.exec(status||"");
+  if(mm){ live=num(mm[1]); liveTime=(mm[2]||"").replace(/^[\d\-]+\s*/,""); }
+  const price=(live!=null)?live:last.price;
+  const dc=price-first.price, dcp=first.price?dc/first.price*100:0;
   let sig="空手觀望",side="flat";
   if(last.long>=last.lt){sig="做多訊號";side="long";}
   else if(last.short>=last.st){sig="做空訊號";side="short";}
   return {has:true,day:dayFromStatus(status),refreshed:refreshedFrom(status),
-    price:last.price,time:last.time,dc,dcp,long:last.long,short:last.short,lt:last.lt,st:last.st,
+    price,live:(live!=null),liveTime,kbar:last.time,dc,dcp,long:last.long,short:last.short,lt:last.lt,st:last.st,
     maxL:Math.max(...rows.map(r=>r.long)),maxS:Math.max(...rows.map(r=>r.short)),sig,side,n:rows.length};
 }
 
@@ -199,7 +204,7 @@ function renderLive(sig,hold){
   let h=`<div class="card"><div class="label">目前小台價格 · MXF</div>
     <div class="price">${fmt(sig.price)}</div>
     <div class="chg ${cls}">${ar} ${sig.dc>=0?"+":""}${fmt(sig.dc)} 點（${sig.dcp>=0?"+":""}${sig.dcp.toFixed(2)}%）· 當日</div>
-    <div class="live" style="margin-top:6px;">最新 K 棒 ${sig.time}　·　交易日 ${sig.day}</div></div>`;
+    <div class="live" style="margin-top:6px;">${sig.live?('最新成交 '+sig.liveTime):('最新 K 棒 '+sig.kbar)}　·　K棒 ${sig.kbar}　·　${sig.day}</div></div>`;
   h+=`<div class="card" style="text-align:center;"><div class="label" style="margin-bottom:8px;">目前 AI 訊號</div>
     <span class="badge ${sig.side}">${sig.sig}</span></div>`;
   h+=`<div class="conf">
