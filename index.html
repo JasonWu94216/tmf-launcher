@@ -144,18 +144,21 @@ async function fetchText(feeds){
   }
   throw (err||new Error("fetch"));
 }
-async function pull(pw){
-  // 同時抓所有來源、解密後比對時間戳(ts)，只採用最新的那份
-  // → 避免某個來源(如 githack 的 stale-if-error)卡住舊資料害畫面凍結
+// GitHub 內容 API：未經 CDN 長快取，「立即更新」用它抓當下最新（有 CORS）
+const API_FRESH="https://api.github.com/repos/JasonWu94216/tmf-data/contents/data.json";
+async function getEnc(src){
+  const r=await fetch(src+(src.indexOf("?")>=0?"&":"?")+"t="+Date.now(),{cache:"no-store"});
+  if(!r.ok) throw new Error("http"+r.status);
+  if(src.indexOf("api.github.com")>=0){ const j=await r.json(); return atob((j.content||"").replace(/\s/g,"")); }
+  return await r.text();
+}
+async function pull(pw, force){
+  // 平時抓兩個來源、比對時間戳(ts)取最新；按「立即更新」時(force)再多抓未快取的 API，確保最即時
+  const srcs = force ? [API_FRESH].concat(CFG.feeds) : CFG.feeds.slice();
   const good=[]; let authFail=false, neterr=null;
-  for(const u of CFG.feeds){
-    try{
-      const r=await fetch(u+"?t="+Date.now(),{cache:"no-store"});
-      if(!r.ok){ neterr=new Error("http"+r.status); continue; }
-      const b64=await r.text();
-      try{ const d=await decryptData(b64,pw); if(d && d.ok!==false) good.push(d); }
-      catch(e){ authFail=true; }
-    }catch(e){ neterr=e; }
+  for(const s of srcs){
+    try{ const enc=await getEnc(s); const d=await decryptData(enc,pw); if(d && d.ok!==false) good.push(d); }
+    catch(e){ const m=String((e&&e.message)||""); if(m.indexOf("http")===0) neterr=e; else authFail=true; }
   }
   if(good.length){ good.sort((a,b)=> (String(a.ts||"")<String(b.ts||""))?1:-1); return good[0]; }
   if(authFail) return {ok:false, error:"auth"};
@@ -371,9 +374,9 @@ function renderAll(d){
     "永豐模擬帳戶 · 即時數據　·　更新於 "+(snap.refreshed||"—")+"　·　讀取 "+new Date().toLocaleTimeString("zh-TW",{hour12:false});
 }
 
-async function load(silent){
+async function load(silent, force){
   try{
-    const res=await pull(PW);
+    const res=await pull(PW, force);
     if(!res||res.ok===false){ if(!silent){ logout("密碼錯誤或無法讀取"); } return; }
     DATA=res.data; renderAll(DATA);
     document.getElementById("login").style.display="none";
@@ -401,7 +404,10 @@ document.getElementById("go").addEventListener("click",()=>{
   document.getElementById("err").textContent="讀取中…"; load(false).then(startAuto);
 });
 document.getElementById("pw").addEventListener("keydown",e=>{ if(e.key==="Enter") document.getElementById("go").click(); });
-document.getElementById("refresh").addEventListener("click",()=>load(true));
+document.getElementById("refresh").addEventListener("click",async(e)=>{
+  const btn=e.currentTarget, old=btn.textContent; btn.textContent="🔄 更新中…"; btn.disabled=true;
+  try{ await load(true, true); } finally { btn.textContent=old; btn.disabled=false; }
+});
 document.getElementById("autobtn").addEventListener("click",e=>{
   AUTO=!AUTO; e.target.textContent="自動更新："+(AUTO?"開":"關"); startAuto();
 });
