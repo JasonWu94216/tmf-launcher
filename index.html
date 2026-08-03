@@ -62,6 +62,10 @@
   td:first-child,th:first-child{text-align:left;}
   .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;margin-top:6px;}
   img.rep{width:100%;border-radius:12px;margin:8px 0;border:1px solid var(--line);}
+  #docsbox ul,#docsbox ol{padding-left:20px;margin:6px 0;} #docsbox li{margin:4px 0;line-height:1.7;}
+  #docsbox code{background:#1c1c22;padding:1px 5px;border-radius:5px;font-size:.85em;}
+  #docsbox p{line-height:1.85;margin:7px 0;} #docsbox hr{border:0;border-top:1px solid var(--line);margin:12px 0;}
+  #docsbox .card{word-break:break-word;}
   #login{position:fixed;inset:0;background:#000;display:flex;flex-direction:column;
     align-items:center;justify-content:center;gap:16px;padding:24px;z-index:50;}
   #login img{width:96px;height:96px;border-radius:22px;box-shadow:0 8px 40px rgba(22,199,132,.28);}
@@ -125,18 +129,61 @@ async function decryptData(b64, pw){
   return JSON.parse(new TextDecoder().decode(pt));
 }
 
-async function pull(pw){
-  let b64=null, err=null;
-  for(const u of CFG.feeds){
-    try{
-      const r = await fetch(u + "?t=" + Date.now(), {cache:"no-store"});
-      if(r.ok){ b64 = await r.text(); break; }
-      err = new Error("http"+r.status);
-    }catch(e){ err = e; }
+async function fetchText(feeds){
+  let err=null;
+  for(const u of feeds){
+    try{ const r=await fetch(u+"?t="+Date.now(),{cache:"no-store"}); if(r.ok) return await r.text(); err=new Error("http"+r.status); }
+    catch(e){ err=e; }
   }
-  if(b64==null) throw (err || new Error("fetch"));
+  throw (err||new Error("fetch"));
+}
+async function pull(pw){
+  const b64=await fetchText(CFG.feeds);
   try { return await decryptData(b64, pw); }
   catch(e){ return {ok:false, error:"auth"}; }
+}
+
+// ---- markdown 簡易排版（自製，無外部套件）----
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function inlineMd(s){ return esc(s).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>'); }
+function mdToHtml(md){
+  const L=String(md).replace(/\r/g,"").split("\n"); let html="",i=0,para="";
+  const flush=()=>{ if(para.trim()) html+="<p>"+inlineMd(para.trim())+"</p>"; para=""; };
+  while(i<L.length){
+    const ln=L[i];
+    if(/^\s*\|.*\|\s*$/.test(ln) && i+1<L.length && /^\s*\|[\s:|-]+\|\s*$/.test(L[i+1])){
+      flush(); const hd=ln.trim().replace(/^\||\|$/g,"").split("|").map(c=>c.trim()); i+=2; const rs=[];
+      while(i<L.length && /^\s*\|.*\|\s*$/.test(L[i])){ rs.push(L[i].trim().replace(/^\||\|$/g,"").split("|").map(c=>c.trim())); i++; }
+      html+='<div class="tbl-wrap"><table><thead><tr>'+hd.map(h=>"<th>"+inlineMd(h)+"</th>").join("")+"</tr></thead><tbody>"+
+        rs.map(r=>"<tr>"+r.map(c=>"<td>"+inlineMd(c)+"</td>").join("")+"</tr>").join("")+"</tbody></table></div>"; continue;
+    }
+    if(/^\s*$/.test(ln)){ flush(); i++; continue; }
+    if(/^#{1,6}\s+/.test(ln)){ flush(); const lv=ln.match(/^#+/)[0].length; const sz=[0,1.5,1.25,1.1,1.0,.95,.9][Math.min(lv,6)];
+      html+='<div style="font-weight:800;color:#fff;margin:14px 0 6px;font-size:'+sz+'rem;">'+inlineMd(ln.replace(/^#+\s+/,""))+"</div>"; i++; continue; }
+    if(/^\s*(---|\*\*\*|___)\s*$/.test(ln)){ flush(); html+="<hr>"; i++; continue; }
+    if(/^\s*>\s?/.test(ln)){ flush(); const q=[]; while(i<L.length && /^\s*>\s?/.test(L[i])){ q.push(L[i].replace(/^\s*>\s?/,"")); i++; }
+      html+='<div style="border-left:3px solid #333;padding-left:10px;color:#8a8a8e;margin:8px 0;">'+q.map(inlineMd).join("<br>")+"</div>"; continue; }
+    if(/^\s*[-*]\s+/.test(ln)){ flush(); const it=[]; while(i<L.length && /^\s*[-*]\s+/.test(L[i])){ it.push(L[i].replace(/^\s*[-*]\s+/,"")); i++; }
+      html+="<ul>"+it.map(x=>"<li>"+inlineMd(x)+"</li>").join("")+"</ul>"; continue; }
+    if(/^\s*\d+\.\s+/.test(ln)){ flush(); const it=[]; while(i<L.length && /^\s*\d+\.\s+/.test(L[i])){ it.push(L[i].replace(/^\s*\d+\.\s+/,"")); i++; }
+      html+="<ol>"+it.map(x=>"<li>"+inlineMd(x)+"</li>").join("")+"</ol>"; continue; }
+    para += (para?" ":"")+ln; i++;
+  }
+  flush(); return html;
+}
+let DOCS_STATE="idle";
+async function loadDocs(){
+  if(DOCS_STATE!=="idle" || !PW) return;
+  const box=document.getElementById("docsbox"); if(!box) return;
+  DOCS_STATE="loading";
+  box.innerHTML='<div class="muted" style="text-align:center;padding:20px;">論文載入中…（第一次較久）</div>';
+  try{
+    const b64=await fetchText(CFG.feeds.map(u=>u.replace("data.json","docs.json")));
+    const d=await decryptData(b64, PW);
+    box.innerHTML='<div class="sub">📄 給教授的進度報告</div><div class="card">'+mdToHtml(d.progress||"（無）")+"</div>"+
+      '<div class="sub" style="margin-top:16px;">📖 完整論文草稿（研究方法與結果）</div><div class="card">'+mdToHtml(d.thesis||"（無）")+"</div>";
+    DOCS_STATE="done";
+  }catch(e){ box.innerHTML='<div class="note">論文載入失敗，請下拉重新整理或稍後再試。</div>'; DOCS_STATE="idle"; }
 }
 
 function parseSignals(arr){
@@ -286,7 +333,9 @@ function renderRes(){
     夏普 5.40　｜　t=9.35（&gt;2 達標）　｜　5/5 年皆賺</div></div>
   <div class="card"><div class="label">論文方向</div>
     <div style="margin-top:6px;line-height:1.8;">用 AI 整合「技術分析（價）」與「量價資訊（量）」，預測小台短期方向；核心洞見：量價需合判、「吸收」陷阱。</div></div>
-  <div class="note">完整論文草稿與給教授的進度報告保留在電腦（未公開），此處僅顯示可公開的重點結果。</div>`;
+  <div class="note">下方完整論文與進度報告為<b>加密傳輸</b>，只有輸入密碼的你看得到、不會公開。</div>
+  <div id="docsbox"></div>`;
+  loadDocs();
 }
 
 function renderAll(d){
@@ -324,6 +373,7 @@ document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>{
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
   document.querySelectorAll(".panel").forEach(x=>x.classList.remove("on"));
   t.classList.add("on"); document.getElementById("p-"+t.dataset.p).classList.add("on");
+  if(t.dataset.p==="res") loadDocs();
 }));
 document.getElementById("go").addEventListener("click",()=>{
   PW=document.getElementById("pw").value.trim(); sessionStorage.setItem("tmf_pw",PW);
