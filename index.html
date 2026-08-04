@@ -337,6 +337,29 @@ function renderTrades(sum,trades){
   h+=`<div class="metrics">`+pick.map(([t,v])=>`<div class="metric"><div class="mt">${t}</div><div class="mv">${v||"—"}</div></div>`).join("")+`</div>`;
   if(sum["最後更新"]) h+=`<div class="muted" style="font-size:.75rem;margin-top:6px;">統計最後更新：${sum["最後更新"]}</div>`;
   h+=`<div class="note">⚠️ 樣本仍太少（目標 30~50 筆才有參考性），單日輸贏是正常雜訊；且 7/20 孤兒單大虧尚未完整計入累積損益，此處數字僅供機制驗證，勿當策略績效引用。回測主結果見「成果」分頁。</div>`;
+  // 四象限（方向 × 賺賠）：只統計已平倉（有損益）的交易
+  const q={ln:0,ls:0,sn:0,ss:0}, qp={ln:0,ls:0,sn:0,ss:0};
+  trades.forEach(r=>{
+    if(!String(r["出場日"]).trim()) return;            // 未平倉略過
+    const pnl=num(r["估計損益(元)"]); if(pnl==null) return;
+    const isLong=String(r["方向"]).indexOf("多")>=0;
+    if(isLong){ if(pnl>=0){q.ln++;qp.ln+=pnl;} else {q.ls++;qp.ls+=pnl;} }
+    else       { if(pnl>=0){q.sn++;qp.sn+=pnl;} else {q.ss++;qp.ss+=pnl;} }
+  });
+  const money=v=>(v>=0?"+":"−")+fmt(Math.abs(v))+" 元";
+  const cell=(label,cnt,pnl,win)=>`<div class="metric" style="min-width:calc(50% - 6px);border-color:${win?'rgba(22,199,132,.5)':'rgba(234,57,67,.5)'}">
+    <div class="mt">${label}</div>
+    <div class="mv" style="color:${win?GREEN:RED}">${cnt} 筆</div>
+    <div style="color:${win?GREEN:RED};font-size:.82rem;font-weight:700;">${cnt?money(pnl):"—"}</div></div>`;
+  const nLong=q.ln+q.ls, nShort=q.sn+q.ss, pLong=qp.ln+qp.ls, pShort=qp.sn+qp.ss;
+  const wr=(w,n)=> n? (w/n*100).toFixed(0)+"%" : "—";
+  h+=`<div class="sub">四象限分類（方向 × 賺賠）· 已平倉</div>
+    <div class="metrics">
+      ${cell("🟢 賺・做多",q.ln,qp.ln,true)}${cell("🔴 賠・做多",q.ls,qp.ls,false)}
+      ${cell("🟢 賺・做空",q.sn,qp.sn,true)}${cell("🔴 賠・做空",q.ss,qp.ss,false)}
+    </div>
+    <div class="muted" style="font-size:.75rem;margin-top:6px;line-height:1.6;">
+      多單合計 ${nLong?money(pLong):"—"}（勝率 ${wr(q.ln,nLong)}）　·　空單合計 ${nShort?money(pShort):"—"}（勝率 ${wr(q.sn,nShort)}）</div>`;
   h+=`<div class="sub">每一筆進出場</div>`;
   const cols=["#","進場日","進場時","出場日","出場時","方向","進場參考價","出場參考價","點數","估計損益(元)","出場原因"];
   let t=`<div class="tbl-wrap"><table><thead><tr>`+cols.map(c=>`<th>${c}</th>`).join("")+`</tr></thead><tbody>`;
